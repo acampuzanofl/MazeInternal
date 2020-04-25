@@ -143,7 +143,7 @@ DWORD WINAPI HackThread(HMODULE hModule)
     
     
     //assign pObject
-    pObject = (void*)0x20C84028FA0;
+    pObject = (void*)0x000002838A3D26E0;
 
     //debug
     //std::cout << gotCheckpoint;
@@ -151,11 +151,11 @@ DWORD WINAPI HackThread(HMODULE hModule)
     //hack loop
     while (true)
     {
-        uintptr_t* pcolliderObject = (uintptr_t*)(collisionObject + 0x30);
-        if (GetAsyncKeyState(VK_END) & 1) { break; }
-        //if (GetAsyncKeyState(VK_NUMPAD4) & 1) { gotCheckpoint(pObject,0,1000); }
+        //uintptr_t* pcolliderObject = (uintptr_t*)(collisionObject + 0x30);
+        if (GetAsyncKeyState(VK_DELETE) & 1) { break; }
+        //if (GetAsyncKeyState(VK_NUMPAD8) & 1) { gotCheckpoint(pObject,0,1350); }
         //if (GetAsyncKeyState(VK_NUMPAD3) & 1) { someFunc(pObject); showEmoji(pObject, 0xD); }
-        if (GetAsyncKeyState(VK_NUMPAD4) & 1) { if (!(collisionObject==0)) { ColliderSetEnabled((void*)*pcolliderObject, 0); }}
+        //if (GetAsyncKeyState(VK_NUMPAD4) & 1) { if (!(collisionObject==0)) { ColliderSetEnabled((void*)*pcolliderObject, 0); }}
         Sleep(10);
     }
     fclose(f);
