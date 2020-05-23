@@ -1,7 +1,9 @@
 #include "pch.h"
+#include <iomanip>
 #include <iostream>
 #include "Tlhelp32.h"
 #include "Psapi.h"
+#include "string"
 //#include "Winternl.h"
 
 
@@ -210,6 +212,7 @@ THREAD_BASIC_INFORMATION GetThreadInfo(HANDLE hThread)
 	return tbi;
 
 }
+//--------------------------------------------------------------------------------
 //copy teb of target thread to hack thread, make to copy certain tls, or copy all
 void copyTebToCurrentDLL(void* TebBaseAddress, int index)
 {
@@ -225,6 +228,34 @@ void copyTebToCurrentDLL(void* TebBaseAddress, int index)
 		currentTeb->TlsSlots[index] = targetTeb->TlsSlots[index];
 	}
 
+}
+
+void restoreTebToCurrentDLL(TEB* tebBackup, int index)
+{
+	TEB* targetTeb = tebBackup;
+	TEB* currentTeb = NtCurrentTeb();
+	if (index > 0)
+	{
+		currentTeb->TlsSlots[index] = targetTeb->TlsSlots[index];
+		return;
+	}
+	for (int index = 0; index < 64; index++)
+	{
+		currentTeb->TlsSlots[index] = targetTeb->TlsSlots[index];
+	}
+
+}
+
+TEB* TebBackup()
+{
+	TEB* currentTeb = NtCurrentTeb();
+	TEB* backupTeb = new TEB[0x100];
+	for (int index = 0; index < 64; index++)
+	{
+		backupTeb->TlsSlots[index] = currentTeb->TlsSlots[index];
+	}
+
+	return backupTeb;
 }
 
 //------------------------------------------------------------------------------------
@@ -289,8 +320,11 @@ _getCurDomain getCurDomain;
 typedef void* (_fastcall* _loadAsm)(void* appDomain, const char* assembly);
 _loadAsm loadAsm;
 
-typedef void* (_fastcall* _unknownFunction)(uintptr_t staticObject, int id);
-_unknownFunction unknownFunction;
+typedef void* (_fastcall* _unknownFunction)(uintptr_t staticObject, int id); //(byte*)
+_unknownFunction UnloadFunction;
+
+typedef BYTE* (_fastcall* _getBytes)(unsigned long value);
+_getBytes getBytes;
 
 struct serverManager {
 	typedef void(_fastcall* _showAnimation)(void* pObject);
@@ -298,6 +332,9 @@ struct serverManager {
 
 	typedef void(_fastcall* _delayedStart)(void* pObject);
 	_delayedStart delayedStart;
+
+	typedef bool(_fastcall* _moveNext)(void* pObject);
+	_moveNext moveNext;
 
 	typedef void(_fastcall* _onDestroy)(void* pObject);
 	_delayedStart onDestroy;
@@ -325,6 +362,9 @@ struct serverManager {
 
 	typedef void(_fastcall* _sendEmoji)(void* pObject, short _emoji);
 	_sendEmoji sendEmoji;
+
+	typedef bool(_fastcall* _sendData)(void* pObject, BYTE pkt[]);
+	_sendData sendData;
 
 	typedef void(_fastcall* _sendInfoRequest)(void* pObject, unsigned int uid);
 	_sendInfoRequest sendInfoRequest;
@@ -393,10 +433,36 @@ struct transform {
 };
 
 //-------------------------------------------------------------------------------------
-
+//-------------------------------------------------------------------------------------
+// send wrapper display packet array
+void _fastcall sendDataWrapper(void* pObject, BYTE* pkt)
+{
+	
+		for (int i = 0; i < 0x50; i++)
+		{
+			std::cout << std::hex << std::uppercase << std::setfill('0') << std::setw(2) << (int)pkt[i];
+		}
+		std::cout << std::endl;
+	
+}
+//-------------------------------------------------------------------------------------
+//-------------------------------------------------------------------------------------
+//hex string to byte
+BYTE* StringToByteArray(std::string hex)
+{
+	int NumberChars = hex.length();
+	BYTE* bytes = new BYTE[NumberChars / 2];
+	for (int i = 0; i < NumberChars; i += 2)
+	{
+		bytes[i / 2] = std::stoi(hex.substr(i,2), nullptr, 16);
+	}
+	return bytes;
+}
+//-----------------------------------------------------------------------------------
 //init injection point
 //uintptr_t getCollision_detour = 0x00;
 uintptr_t getRaceManager_detour = 0x00;
+uintptr_t getPacketStruct_detour = 0x00;
 
 //init this pointer
 //void* pObject = nullptr;
@@ -415,23 +481,30 @@ DWORD WINAPI HackThread(HMODULE hModule)
 
 	uintptr_t moduleBase = (uintptr_t)GetModuleHandle(L"GameAssembly.dll");
 
-	//turn of collision for walls touching
+	TEB* backupTeb = TebBackup();
+
+	//turn off collision for walls touching
 	//ColliderSetEnabled = (_ColliderSetEnabled)(moduleBase + 0x660F00);
 	//getCollision_detour = (uintptr_t)(moduleBase + 0x6C5F15);
 	//uintptr_t collisionObject = NULL;
 	//void* pcollisionObject = &collisionObject;
 	//_codeCave codeCave = x64hookAndAlloc((void*)getCollision_detour, 6);
 
+	//std::cout << &colliderObject << std::endl << colliderObject << std::endl;
+	//std::cout << (void*)((uintptr_t)codeCave.caveAddress + 16) << std::endl << codeCave.returnAddress << std::endl << (void*)jmpOffset << std::endl;
+
 
 	//get Race Manager
+	//--------------------------------------------------------------------------
+	//init hook
 	getRaceManager_detour = (uintptr_t)(moduleBase + 0x6C810B);
 	uintptr_t raceManagerObject = NULL;
 	void* praceManagerObject = &raceManagerObject;
 	_codeCave codeCave = x64hookAndAlloc((void*)getRaceManager_detour, 5);
 
 	//write into cave
-	BYTE shell[] = { 0x48, 0x8B, 0xC7 };
-	BYTE movRaxToContainer[] = { 0x48, 0xA3, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 };
+	BYTE shell[] = { 0x48, 0x8B, 0xC7 }; //mov rax,rdi
+	BYTE movRaxToContainer[] = { 0x48, 0xA3, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 }; //mov [praceManagerObject],rax
 	memcpy((movRaxToContainer + 2), &praceManagerObject, 8);
 	memcpy(codeCave.caveAddress, shell, 3);
 	memcpy((void*)((uintptr_t)codeCave.caveAddress + 3), movRaxToContainer, 10);
@@ -440,8 +513,64 @@ DWORD WINAPI HackThread(HMODULE hModule)
 	memcpy((codeCave.returnJMP + 1), &jmpOffset, 4);
 	memcpy((void*)((uintptr_t)codeCave.caveAddress + 18), codeCave.returnJMP, 5);
 	delete codeCave.originalInstruction;
-	//std::cout << &colliderObject << std::endl << colliderObject << std::endl;
-	//std::cout << (void*)((uintptr_t)codeCave.caveAddress + 16) << std::endl << codeCave.returnAddress << std::endl << (void*)jmpOffset << std::endl;
+	//---------------------------------------------------------------------------
+
+	//get packet dump
+	//---------------------------------------------------------------------------
+	////update server position
+	//getPacketStruct_detour = (uintptr_t)(moduleBase + 0x6d5639);
+	//codeCave = x64hookAndAlloc((void*)getPacketStruct_detour, 6);
+	//
+	////write into cave
+	//void* send = sendDataWrapper;
+	//BYTE copyFunctiontoRAX[] = { 0x48, 0xB8, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 }; //mov rax, function address
+	//BYTE callRAX[] = { 0xFF, 0xD0 };
+	//memcpy(codeCave.caveAddress, codeCave.originalInstruction, codeCave.lengthOfOverwrite);
+	//memcpy(copyFunctiontoRAX + 2, &send, 8);
+	//memcpy((void*)((uintptr_t)codeCave.caveAddress + 6), copyFunctiontoRAX, 10);
+	//memcpy((void*)((uintptr_t)codeCave.caveAddress + 16), callRAX, 2);
+	//memcpy((void*)((uintptr_t)codeCave.caveAddress + 18), codeCave.originalInstruction, codeCave.lengthOfOverwrite);
+	//jmpOffset = (uintptr_t)codeCave.returnAddress - ((uintptr_t)codeCave.caveAddress + 24) - 5; //location of where i want to jump to - location of where i am - instruction size(jmp = 1, offset = 4)
+	//memcpy((codeCave.returnJMP + 1), &jmpOffset, 4);
+	//memcpy((void*)((uintptr_t)codeCave.caveAddress + 24), codeCave.returnJMP, 5);
+	//delete codeCave.originalInstruction;
+	////		 -system array prologue                           -size of array   -packetID    -?????           -time            -x,y,z
+	////packet = 68A615CAD401000000000000000000000000000000000000 2E00000000000000 50			B4F7DD82FC4A5F1C 338E070000000000 7E412B001B1C0000DB78250000000000CFD91F00000000000000000000
+
+	////sendemoji
+	//getPacketStruct_detour = (uintptr_t)(moduleBase + 0x6d5837);
+	//codeCave = x64hookAndAlloc((void*)getPacketStruct_detour, 6);
+	//
+	////write into cave
+	//memcpy(codeCave.caveAddress, codeCave.originalInstruction, codeCave.lengthOfOverwrite);
+	//memcpy(copyFunctiontoRAX + 2, &send, 8);
+	//memcpy((void*)((uintptr_t)codeCave.caveAddress + 6), copyFunctiontoRAX, 10);
+	//memcpy((void*)((uintptr_t)codeCave.caveAddress + 16), callRAX, 2);
+	//memcpy((void*)((uintptr_t)codeCave.caveAddress + 18), codeCave.originalInstruction, codeCave.lengthOfOverwrite);
+	//jmpOffset = (uintptr_t)codeCave.returnAddress - ((uintptr_t)codeCave.caveAddress + 24) - 5; //location of where i want to jump to - location of where i am - instruction size(jmp = 1, offset = 4)
+	//memcpy((codeCave.returnJMP + 1), &jmpOffset, 4);
+	//memcpy((void*)((uintptr_t)codeCave.caveAddress + 24), codeCave.returnJMP, 5);
+	//delete codeCave.originalInstruction;
+	////         -system array prologue							  -size of array   -packetID    -?????           -emojiID       
+	////packet = 08D46DE0EB01000000000000000000000000000000000000 0A00000000000000 45			B4F7DD82FC4A5F1C 17
+
+	////hook send data
+	//getPacketStruct_detour = (uintptr_t)(moduleBase + 0x6d5899);
+	//codeCave = x64hookAndAlloc((void*)getPacketStruct_detour, 6);
+	//
+	////write into cave
+	//void* send = sendDataWrapper;
+	//BYTE copyFunctiontoRAX[] = { 0x48, 0xB8, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 }; //mov rax, function address
+	//BYTE callRAX[] = { 0xFF, 0xD0 };
+	//memcpy(codeCave.caveAddress, codeCave.originalInstruction, codeCave.lengthOfOverwrite);
+	//memcpy(copyFunctiontoRAX + 2, &send, 8);
+	//memcpy((void*)((uintptr_t)codeCave.caveAddress + 6), copyFunctiontoRAX, 10);
+	//memcpy((void*)((uintptr_t)codeCave.caveAddress + 16), callRAX, 2);
+	//jmpOffset = (uintptr_t)codeCave.returnAddress - ((uintptr_t)codeCave.caveAddress + 18) - 5; //location of where i want to jump to - location of where i am - instruction size(jmp = 1, offset = 4)
+	//memcpy((codeCave.returnJMP + 1), &jmpOffset, 4);
+	//memcpy((void*)((uintptr_t)codeCave.caveAddress + 18), codeCave.returnJMP, 5);
+	//delete codeCave.originalInstruction;
+	//---------------------------------------------------------------------------
 
 
 	//serverManager functions
@@ -457,7 +586,8 @@ DWORD WINAPI HackThread(HMODULE hModule)
 	//serverManager.showText = (serverManager::_showText)(moduleBase + 0x6D7440);
 	//serverManager.updateServerPosition = (serverManager::_updateServerPosition)(moduleBase + 0x6D50F0);
 	serverManager.sendEmoji = (serverManager::_sendEmoji)(moduleBase + 0x6D5720);
-	//serverManager.sendData = (serverManager::_sendData)(moduleBase + 0x6D5880);
+	serverManager.sendData = (serverManager::_sendData)(moduleBase + 0x6D5880);
+	//serverManager.moveNext = (serverManager::_moveNext)(moduleBase + 0x6F4AD0);
 	//serverManager.sendInfoRequest = (serverManager::_sendInfoRequest)(moduleBase + 0x6D5B00);
 	//serverManager.sendHeartbeat = (serverManager::_sendHeartbeat)(moduleBase + 0x6D5CD0);
 	//serverManager.setGroundedBlend = (serverManager::_setGroundedBlend)(moduleBase + 0x6D5E80);
@@ -483,6 +613,8 @@ DWORD WINAPI HackThread(HMODULE hModule)
 	transform.Translate = (transform::_Translate)(moduleBase + 0x442080);
 	transform.set_position_injected = (transform::_set_position_injected)(moduleBase + 0x4433D0);
 
+	//BitConverter
+	getBytes = (_getBytes)(moduleBase + 0x2e28e0);
 
 	//checkpoint
 	gotCheckpoint = (_gotCheckpoint)(moduleBase + 0x6C7F80);
@@ -492,18 +624,19 @@ DWORD WINAPI HackThread(HMODULE hModule)
 	loadAsm = (_loadAsm)(moduleBase + 0x2CD590);
 
 	//unknown function
-	unknownFunction = (_unknownFunction)(moduleBase + 0x56b60);
+	UnloadFunction = (_unknownFunction)(moduleBase + 0x56b60);
 
 	//assign Object
 	//pObject = (void*)0x000002838A3D26E0;
 	void* transformObject = (void*)0x1E51C0C54E0;
-	uintptr_t* pUnknownObject = (uintptr_t*)(moduleBase + 0xAE78C8);
+	uintptr_t* pCreateArray = (uintptr_t*)(moduleBase + 0xAE78C8); //(BYTE*)UnloadFunction(*pCreateArray, 0x2e) 0x2e = size of array
 
 
 	//debug
 
 	//hack loop
 	int checkpoint_id = 0;
+	bool toggle = false;
 	while (true)
 	{
 		uintptr_t* pServerManager = (uintptr_t*)(raceManagerObject + 0x20);
@@ -524,25 +657,25 @@ DWORD WINAPI HackThread(HMODULE hModule)
 		{
 			if (!(raceManagerObject == 0))
 			{
-
 				float* pTime = (float*)((uintptr_t)*pServerManager + 0x180);
 				gotCheckpoint((void*)raceManagerObject, checkpoint_id, *pTime);
 				std::cout << "Checkpoint: " << checkpoint_id << " Time: " << *pTime << std::endl;
-				if (checkpoint_id++ > 11) { checkpoint_id = 0; }
-				
-				
+				if (checkpoint_id++ > 11) { checkpoint_id = 0; }	
 			}
 
 		}
 		if (GetAsyncKeyState(VK_NUMPAD4) & 1)
 		{
-			const char* path = "mscorlib";
-			void* curAppDomain = getCurDomain();
-			void* mainTEB = (void*)0x0000001DD76D1000;
-			std::cout << curAppDomain << std::endl;
-			copyTebToCurrentDLL(mainTEB,0);
-			void* instance = loadAsm(curAppDomain, path);
-			std::cout << instance;
+			float* pTime = (float*)((uintptr_t)*pServerManager + 0x180);
+			*pTime = *pTime * 10000.00000000;
+			if (9223372036854775808.00000000 <= *pTime) { *pTime = *pTime - 9223372036854775808.00000000; }
+			BYTE* pTimeBytes = getBytes(*pTime);
+			std::cout << (void*)getBytes(*pTime) << std::endl;
+			for (int i = 0x20; i < 0x28; i++)
+			{
+				std::cout << std::hex << std::uppercase << std::setfill('0') << std::setw(2) << (int)pTimeBytes[i];
+			}
+			std::cout << std::endl;
 		}
 		if (GetAsyncKeyState(VK_NUMPAD9) & 1)
 		{
@@ -552,9 +685,16 @@ DWORD WINAPI HackThread(HMODULE hModule)
 		}
 		if (GetAsyncKeyState(VK_NUMPAD7) & 1)
 		{
-			std::cout << unknownFunction(*pUnknownObject, 0x12) << std::endl;
-			std::cout << unknownFunction(*pUnknownObject, 0x2a) << std::endl;
 
+		}
+		if (GetAsyncKeyState(VK_NUMPAD6) & 1)
+		{
+			char buffer[0x100];
+			BYTE* pkt;
+			std::cout << "send: ";
+			std::cin >> buffer;
+			pkt = StringToByteArray(buffer);
+			serverManager.sendData((void*)*pServerManager, pkt);
 		}
 		//if (GetAsyncKeyState(VK_NUMPAD4) & 1) { if (!(collisionObject==0)) { ColliderSetEnabled((void*)*pcolliderObject, 0); }}
 		Sleep(10);
