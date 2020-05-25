@@ -6,7 +6,6 @@
 #include "string"
 //#include "Winternl.h"
 
-
 #define NOP 0x90
 #define PAGE 0x1000
 #define TWO_GB 0x80000000
@@ -41,13 +40,13 @@ _codeCave x64hookAndAlloc(void* hookToAddress, int lengthOfOverwrite)
 	while (addressToQuery < upperRegion)
 	{
 		VirtualQuery((LPCVOID)addressToQuery, &mbi, sizeof(mbi));
-		if (mbi.State == MEM_FREE && mbi.RegionSize >= PAGE)
+		if (mbi.State == MEM_FREE && mbi.RegionSize >= PAGE)	//look for free memory of size 4kb
 		{
 			//std::cout << mbi.RegionSize << std::endl;
 			//std::cout << mbi.BaseAddress << std::endl;
-			if ((uintptr_t)mbi.BaseAddress > lowerRegion && (uintptr_t)mbi.BaseAddress < upperRegion) //check if BaseAddress is within bounds
-			{
-				if (((uintptr_t)mbi.BaseAddress & 0xFFFF) == 0) { break; } //check if 64k alligned
+			if ((uintptr_t)mbi.BaseAddress > lowerRegion && (uintptr_t)mbi.BaseAddress < upperRegion)	//check if BaseAddress is within bounds
+			{	
+				if (((uintptr_t)mbi.BaseAddress & 0xFFFF) == 0) { break; }	//check if 64k alligned
 			}
 		}
 		addressToQuery += mbi.RegionSize;
@@ -437,13 +436,11 @@ struct transform {
 // send wrapper display packet array
 void _fastcall sendDataWrapper(void* pObject, BYTE* pkt)
 {
-	
 		for (int i = 0; i < 0x50; i++)
 		{
 			std::cout << std::hex << std::uppercase << std::setfill('0') << std::setw(2) << (int)pkt[i];
 		}
 		std::cout << std::endl;
-	
 }
 //-------------------------------------------------------------------------------------
 //-------------------------------------------------------------------------------------
@@ -517,25 +514,25 @@ DWORD WINAPI HackThread(HMODULE hModule)
 
 	//get packet dump
 	//---------------------------------------------------------------------------
-	////update server position
-	//getPacketStruct_detour = (uintptr_t)(moduleBase + 0x6d5639);
-	//codeCave = x64hookAndAlloc((void*)getPacketStruct_detour, 6);
-	//
-	////write into cave
-	//void* send = sendDataWrapper;
-	//BYTE copyFunctiontoRAX[] = { 0x48, 0xB8, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 }; //mov rax, function address
-	//BYTE callRAX[] = { 0xFF, 0xD0 };
-	//memcpy(codeCave.caveAddress, codeCave.originalInstruction, codeCave.lengthOfOverwrite);
-	//memcpy(copyFunctiontoRAX + 2, &send, 8);
-	//memcpy((void*)((uintptr_t)codeCave.caveAddress + 6), copyFunctiontoRAX, 10);
-	//memcpy((void*)((uintptr_t)codeCave.caveAddress + 16), callRAX, 2);
-	//memcpy((void*)((uintptr_t)codeCave.caveAddress + 18), codeCave.originalInstruction, codeCave.lengthOfOverwrite);
-	//jmpOffset = (uintptr_t)codeCave.returnAddress - ((uintptr_t)codeCave.caveAddress + 24) - 5; //location of where i want to jump to - location of where i am - instruction size(jmp = 1, offset = 4)
-	//memcpy((codeCave.returnJMP + 1), &jmpOffset, 4);
-	//memcpy((void*)((uintptr_t)codeCave.caveAddress + 24), codeCave.returnJMP, 5);
-	//delete codeCave.originalInstruction;
-	////		 -system array prologue                           -size of array   -packetID    -?????           -time            -x,y,z
-	////packet = 68A615CAD401000000000000000000000000000000000000 2E00000000000000 50			B4F7DD82FC4A5F1C 338E070000000000 7E412B001B1C0000DB78250000000000CFD91F00000000000000000000
+	//update server position
+	getPacketStruct_detour = (uintptr_t)(moduleBase + 0x6d5639);
+	codeCave = x64hookAndAlloc((void*)getPacketStruct_detour, 6);
+	
+	//write into cave
+	void* send = sendDataWrapper;
+	BYTE copyFunctiontoRAX[] = { 0x48, 0xB8, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 }; //mov rax, function address
+	BYTE callRAX[] = { 0xFF, 0xD0 };
+	memcpy(codeCave.caveAddress, codeCave.originalInstruction, codeCave.lengthOfOverwrite);
+	memcpy(copyFunctiontoRAX + 2, &send, 8);
+	memcpy((void*)((uintptr_t)codeCave.caveAddress + 6), copyFunctiontoRAX, 10);
+	memcpy((void*)((uintptr_t)codeCave.caveAddress + 16), callRAX, 2);
+	memcpy((void*)((uintptr_t)codeCave.caveAddress + 18), codeCave.originalInstruction, codeCave.lengthOfOverwrite);
+	jmpOffset = (uintptr_t)codeCave.returnAddress - ((uintptr_t)codeCave.caveAddress + 24) - 5; //location of where i want to jump to - location of where i am - instruction size(jmp = 1, offset = 4)
+	memcpy((codeCave.returnJMP + 1), &jmpOffset, 4);
+	memcpy((void*)((uintptr_t)codeCave.caveAddress + 24), codeCave.returnJMP, 5);
+	delete codeCave.originalInstruction;
+	////		 -system array prologue                           -size of array   -packetID    -password(user secret)           -time             -x       -y       -z	      -yaw     -pitch   -roll    -trigger/grounded/notGrounded blends
+	////packet = 68A615CAD401000000000000000000000000000000000000 2E00000000000000 50			B4F7DD82FC4A5F1C				 338E070000000000  7E412B00 1B1C0000 DB782500 00000000 CFD91F00 00000000 0000000000
 
 	////sendemoji
 	//getPacketStruct_detour = (uintptr_t)(moduleBase + 0x6d5837);
@@ -551,8 +548,8 @@ DWORD WINAPI HackThread(HMODULE hModule)
 	//memcpy((codeCave.returnJMP + 1), &jmpOffset, 4);
 	//memcpy((void*)((uintptr_t)codeCave.caveAddress + 24), codeCave.returnJMP, 5);
 	//delete codeCave.originalInstruction;
-	////         -system array prologue							  -size of array   -packetID    -?????           -emojiID       
-	////packet = 08D46DE0EB01000000000000000000000000000000000000 0A00000000000000 45			B4F7DD82FC4A5F1C 17
+	////         -system array prologue							  -size of array   -packetID    -password(user secret)           -emojiID       
+	////packet = 08D46DE0EB01000000000000000000000000000000000000 0A00000000000000 45			B4F7DD82FC4A5F1C				 17
 
 	////hook send data
 	//getPacketStruct_detour = (uintptr_t)(moduleBase + 0x6d5899);
@@ -695,6 +692,39 @@ DWORD WINAPI HackThread(HMODULE hModule)
 			std::cin >> buffer;
 			pkt = StringToByteArray(buffer);
 			serverManager.sendData((void*)*pServerManager, pkt);
+		}
+		if (GetAsyncKeyState(VK_NUMPAD5) & 1)
+		{
+			BYTE* pkt = (BYTE*)UnloadFunction(*pCreateArray, 0x2e);
+			pkt[0x20] = 0x50; //pkt[packetID] = Update Server Position
+			long long int password = *(long long int*)(*(uintptr_t*)((uintptr_t)*pServerManager + 0x178) + 0x20); //multi level pointer to user secret (password)
+			memcpy(pkt + 0x21, &password, 8); //pkt[userSecret] = password
+			
+			//calculate time
+			float* pTime = (float*)((uintptr_t)*pServerManager + 0x180);
+			*pTime = *pTime * 10000.00000000;
+			if (9223372036854775808.00000000 <= *pTime) { *pTime = *pTime - 9223372036854775808.00000000; }
+			BYTE* pTimeBytes = getBytes(*pTime);
+			memcpy(pkt + 0x29, pTimeBytes+0x20, 8); //pkt[time] = *pTimeBytes
+			BYTE* source = getBytes((int)(*(float*)((uintptr_t)*pServerManager + 0x1cc) * 10000));
+			memcpy(pkt+0x31,source+0x20, 4);
+			source = getBytes((int)(*(float*)((uintptr_t)*pServerManager + 0x1d0) * 10000));
+			memcpy(pkt+0x35,source + 0x20, 4);
+			source = getBytes((int)(*(float*)((uintptr_t)*pServerManager + 0x1d4) * 10000));
+			memcpy(pkt+0x39,source + 0x20, 4);
+			source = getBytes((int)(*(float*)((uintptr_t)*pServerManager + 0x1d8) * 10000));
+			memcpy(pkt+0x3d,source + 0x20, 4);
+			source = getBytes((int)(*(float*)((uintptr_t)*pServerManager + 0x1dc) * 10000));
+			memcpy(pkt+0x41,source + 0x20, 4);
+			source = getBytes((int)(*(float*)((uintptr_t)*pServerManager + 0x1e0) * 10000));
+			memcpy(pkt+0x45,source + 0x20, 4);
+
+			//display packet
+			for (int i = 0; i < 0x50; i++)
+			{
+				std::cout << std::hex << std::uppercase << std::setfill('0') << std::setw(2) << (int)pkt[i];
+			}
+			std::cout << std::endl;
 		}
 		//if (GetAsyncKeyState(VK_NUMPAD4) & 1) { if (!(collisionObject==0)) { ColliderSetEnabled((void*)*pcolliderObject, 0); }}
 		Sleep(10);
